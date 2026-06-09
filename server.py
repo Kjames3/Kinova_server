@@ -86,12 +86,20 @@ def _auth(request: Request, token: str = "") -> str:
         raise HTTPException(401, "Unauthorized — invalid or missing token")
     return t
 
-# ── Frame buffers ─────────────────────────────────────────────────────────────
+# ── Frame buffers (JPEG) & raw data for point cloud ──────────────────────────
 _frame_lock       = threading.Lock()
 _rs_rgb_frame:    Optional[bytes] = None
 _rs_depth_frame:  Optional[bytes] = None
 _oak_rgb_frame:   Optional[bytes] = None
 _oak_depth_frame: Optional[bytes] = None
+
+# Raw arrays for 3-D point cloud generation
+_rs_color_raw:   Optional[np.ndarray] = None   # H×W×3 RGB uint8
+_rs_depth_raw:   Optional[np.ndarray] = None   # H×W float32 metres
+_rs_intrinsics:  Optional[Dict]       = None   # fx fy ppx ppy
+_oak_color_raw:  Optional[np.ndarray] = None   # 640×480×3 RGB uint8
+_oak_depth_raw:  Optional[np.ndarray] = None   # 640×400 uint16 mm
+_oak_intrinsics: Dict = {"fx": 452.0, "fy": 452.0, "ppx": 320.0, "ppy": 200.0}
 
 # ── Robot state ───────────────────────────────────────────────────────────────
 _robot_lock  = threading.Lock()
@@ -111,7 +119,7 @@ _status: Dict[str, bool] = {"realsense": False, "oakd": False, "kinova": False}
 # RealSense D435i
 # ─────────────────────────────────────────────────────────────────────────────
 def _realsense_thread():
-    global _rs_rgb_frame, _rs_depth_frame
+    global _rs_rgb_frame, _rs_depth_frame, _rs_color_raw, _rs_depth_raw, _rs_intrinsics
     try:
         import pyrealsense2 as rs
     except ImportError:
@@ -124,28 +132,43 @@ def _realsense_thread():
     cfg.enable_stream(rs.stream.depth, 640, 480, rs.format.z16,  30)
 
     try:
-        pipeline.start(cfg)
+        profile = pipeline.start(cfg)
         _status["realsense"] = True
         log.info("RealSense D435i started")
     except Exception as exc:
         log.error(f"RealSense start failed: {exc}")
         return
 
-    colorizer = rs.colorizer()
+    depth_sensor = profile.get_device().first_depth_sensor()
+    depth_scale  = depth_sensor.get_depth_scale()
+    align        = rs.align(rs.stream.color)
+    colorizer    = rs.colorizer()
+
     try:
         while not _stop_event.is_set():
-            frames = pipeline.wait_for_frames(timeout_ms=1000)
-            c = frames.get_color_frame()
-            d = frames.get_depth_frame()
+            frames         = pipeline.wait_for_frames(timeout_ms=1000)
+            aligned        = align.process(frames)
+            c = aligned.get_color_frame()
+            d = aligned.get_depth_frame()
             if not c or not d:
                 continue
-            color_img = np.asanyarray(c.get_data())
-            depth_img = np.asanyarray(colorizer.colorize(d).get_data())
+
+            color_img = np.asanyarray(c.get_data())           # BGR
+            depth_vis = np.asanyarray(colorizer.colorize(d).get_data())
             _, cb = cv2.imencode(".jpg", color_img, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            _, db = cv2.imencode(".jpg", depth_img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            _, db = cv2.imencode(".jpg", depth_vis, [cv2.IMWRITE_JPEG_QUALITY, 80])
+
+            # Raw data for point cloud
+            depth_m = np.asanyarray(d.get_data()).astype(np.float32) * depth_scale
+            intr    = c.profile.as_video_stream_profile().get_intrinsics()
+
             with _frame_lock:
                 _rs_rgb_frame   = cb.tobytes()
                 _rs_depth_frame = db.tobytes()
+                _rs_color_raw   = color_img[:, :, ::-1].copy()   # BGR→RGB
+                _rs_depth_raw   = depth_m
+                _rs_intrinsics  = {"fx": intr.fx, "fy": intr.fy,
+                                   "ppx": intr.ppx, "ppy": intr.ppy}
     except Exception as exc:
         log.error(f"RealSense error: {exc}")
     finally:
@@ -158,7 +181,7 @@ def _realsense_thread():
 # OAK-D Pro W  (uses ImageManip resize to avoid preview issues)
 # ─────────────────────────────────────────────────────────────────────────────
 def _oakd_thread():
-    global _oak_rgb_frame, _oak_depth_frame
+    global _oak_rgb_frame, _oak_depth_frame, _oak_color_raw, _oak_depth_raw, _oak_intrinsics
     try:
         import depthai as dai
     except ImportError:
@@ -216,6 +239,17 @@ def _oakd_thread():
 
             q_rgb   = device.getOutputQueue("rgb",   maxSize=4, blocking=False)
             q_depth = device.getOutputQueue("depth", maxSize=4, blocking=False)
+
+            # Read calibration for point cloud deprojection
+            try:
+                calib = device.readCalibration()
+                m = calib.getCameraIntrinsics(dai.CameraBoardSocket.CAM_B, 640, 400)
+                _oak_intrinsics = {"fx": m[0][0], "fy": m[1][1],
+                                   "ppx": m[0][2], "ppy": m[1][2]}
+                log.info(f"OAK-D intrinsics: fx={m[0][0]:.1f} fy={m[1][1]:.1f}")
+            except Exception as exc:
+                log.warning(f"OAK-D calibration read failed (using defaults): {exc}")
+
             time.sleep(1.5)  # allow pipeline to warm up
 
             while not _stop_event.is_set():
@@ -227,14 +261,16 @@ def _oakd_thread():
                     _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
                     with _frame_lock:
                         _oak_rgb_frame = buf.tobytes()
+                        _oak_color_raw = frame[:, :, ::-1].copy()  # BGR→RGB
 
                 if pkt_depth is not None:
-                    raw   = pkt_depth.getFrame()
+                    raw   = pkt_depth.getFrame()                    # uint16, mm, 640×400
                     norm  = cv2.normalize(raw, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
                     color = cv2.applyColorMap(norm, cv2.COLORMAP_JET)
                     _, buf = cv2.imencode(".jpg", color, [cv2.IMWRITE_JPEG_QUALITY, 80])
                     with _frame_lock:
                         _oak_depth_frame = buf.tobytes()
+                        _oak_depth_raw   = raw.copy()
 
                 if pkt_rgb is None and pkt_depth is None:
                     time.sleep(0.005)
@@ -345,6 +381,62 @@ async def _mjpeg_stream(get_fn, fps: int = 30):
             last = frame
             yield boundary + frame + b"\r\n"
         await asyncio.sleep(interval)
+
+def _compute_pc_rs(max_pts: int = 8000):
+    """Return (Nx3 float32 XYZ metres, Nx3 uint8 RGB) for the latest RealSense frame."""
+    with _frame_lock:
+        depth = _rs_depth_raw
+        color = _rs_color_raw
+        intr  = _rs_intrinsics
+    if depth is None or color is None or intr is None:
+        return np.zeros((0, 3), np.float32), np.zeros((0, 3), np.uint8)
+
+    h, w  = depth.shape
+    step  = max(1, int(np.sqrt(h * w / max_pts)))
+    ys, xs = np.mgrid[0:h:step, 0:w:step]
+    ys, xs = ys.ravel(), xs.ravel()
+    z = depth[ys, xs]
+
+    valid = (z > 0.15) & (z < 6.0)
+    ys, xs, z = ys[valid], xs[valid], z[valid]
+
+    x = (xs - intr["ppx"]) * z / intr["fx"]
+    y = (ys - intr["ppy"]) * z / intr["fy"]
+
+    pts    = np.column_stack([x, y, z]).astype(np.float32)
+    colors = color[ys, xs].astype(np.uint8)
+    return pts, colors
+
+
+def _compute_pc_oak(max_pts: int = 8000):
+    """Return (Nx3 float32 XYZ metres, Nx3 uint8 RGB) for the latest OAK-D frame."""
+    with _frame_lock:
+        depth_mm = _oak_depth_raw
+        color    = _oak_color_raw
+        intr     = _oak_intrinsics
+    if depth_mm is None or color is None:
+        return np.zeros((0, 3), np.float32), np.zeros((0, 3), np.uint8)
+
+    dh, dw = depth_mm.shape        # 640×400
+    ch, cw = color.shape[:2]       # 640×480
+
+    step  = max(1, int(np.sqrt(dh * dw / max_pts)))
+    ys, xs = np.mgrid[0:dh:step, 0:dw:step]
+    ys, xs = ys.ravel(), xs.ravel()
+    z = depth_mm[ys, xs].astype(np.float32) / 1000.0   # mm → m
+
+    valid = (z > 0.15) & (z < 6.0)
+    ys, xs, z = ys[valid], xs[valid], z[valid]
+
+    x = (xs - intr["ppx"]) * z / intr["fx"]
+    y = (ys - intr["ppy"]) * z / intr["fy"]
+
+    pts    = np.column_stack([x, y, z]).astype(np.float32)
+    cx     = (xs * cw / dw).astype(int).clip(0, cw - 1)
+    cy     = (ys * ch / dh).astype(int).clip(0, ch - 1)
+    colors = color[cy, cx].astype(np.uint8)
+    return pts, colors
+
 
 _log_subscribers: Set[asyncio.Queue] = set()
 
@@ -704,6 +796,44 @@ async def ws_terminal(ws: WebSocket, token: str = ""):
         pass
 
 
+# ── WebSocket: point cloud streams ───────────────────────────────────────────
+import struct as _struct
+
+@app.websocket("/ws/pointcloud/realsense")
+async def ws_pc_realsense(ws: WebSocket, token: str = ""):
+    if not _valid_token(token):
+        await ws.close(code=4001)
+        return
+    await ws.accept()
+    try:
+        while True:
+            pts, colors = await asyncio.get_event_loop().run_in_executor(
+                None, _compute_pc_rs)
+            n      = len(pts)
+            header = _struct.pack("<I", n)
+            await ws.send_bytes(header + pts.tobytes() + colors.tobytes())
+            await asyncio.sleep(0.25)   # 4 Hz
+    except WebSocketDisconnect:
+        pass
+
+@app.websocket("/ws/pointcloud/oakd")
+async def ws_pc_oakd(ws: WebSocket, token: str = ""):
+    if not _valid_token(token):
+        await ws.close(code=4001)
+        return
+    await ws.accept()
+    try:
+        while True:
+            pts, colors = await asyncio.get_event_loop().run_in_executor(
+                None, _compute_pc_oak)
+            n      = len(pts)
+            header = _struct.pack("<I", n)
+            await ws.send_bytes(header + pts.tobytes() + colors.tobytes())
+            await asyncio.sleep(0.25)   # 4 Hz
+    except WebSocketDisconnect:
+        pass
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Dashboard HTML
 # ─────────────────────────────────────────────────────────────────────────────
@@ -713,6 +843,9 @@ _DASHBOARD = r"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Kinova Gen3 Server</title>
+<!-- Three.js r128 (last version with global OrbitControls.js include) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Courier New',monospace;background:#111;color:#d0d0d0;overflow:hidden;height:100vh;display:flex;flex-direction:column}
@@ -931,6 +1064,42 @@ header{flex-shrink:0;height:38px;background:#0c0c0c;border-bottom:1px solid #252
         </div>
       </div>
 
+      <!-- ── 3-D Viewers ── -->
+      <div style="display:flex;gap:8px;flex-shrink:0;min-height:0">
+
+        <!-- Kinova FK arm viewer -->
+        <div class="cpanel" style="flex:1;min-width:0">
+          <div class="chdr">
+            <span class="ctitle">KINOVA GEN3 — FORWARD KINEMATICS</span>
+            <div class="sdot on" style="background:#4fc3f7"></div>
+          </div>
+          <div id="armCanvas" style="height:340px;background:#0a0a0a;position:relative">
+            <div style="position:absolute;bottom:5px;left:8px;font-size:.6em;color:#333;pointer-events:none">
+              drag·orbit &nbsp; right-drag·pan &nbsp; scroll·zoom
+            </div>
+          </div>
+        </div>
+
+        <!-- Point cloud viewer -->
+        <div class="cpanel" style="flex:1;min-width:0">
+          <div class="chdr">
+            <span class="ctitle">POINT CLOUD</span>
+            <div class="sdot" id="dot-pc"></div>
+            <select id="pcSource" style="background:#111;border:1px solid #2a2a2a;color:#aaa;font-size:.7em;padding:2px 5px;border-radius:2px">
+              <option value="realsense">RealSense D435i</option>
+              <option value="oakd">OAK-D Pro W</option>
+            </select>
+            <button class="btn bg" id="btnPcStream" onclick="togglePcStream()">&#9654; STREAM</button>
+          </div>
+          <div id="pcCanvas" style="height:340px;background:#0a0a0a;position:relative">
+            <div id="pcOverlay" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:.72em;color:#444;pointer-events:none">
+              Press STREAM to start
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /3d viewers -->
+
     </div><!-- /cams -->
 
     <!-- ── Right sidebar ── -->
@@ -1063,6 +1232,7 @@ function connectRobotWs() {
     // Joints (read-only display if user dragging)
     if (s.joints) {
       robotJoints = s.joints;
+      if (armReady) updateArm(s.joints);
       s.joints.forEach((v, i) => {
         if (activeSl !== `j${i+1}`) {
           const el = document.getElementById(`j${i+1}`);
@@ -1222,6 +1392,280 @@ async function sendCmd() {
   else if (t.includes('close'))   await setGripper(100);
   else appendLog('[INFO] Commands: home · retract · vertical · stop · open · close');
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 3-D VIEWERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Kinova Gen3 modified-DH forward kinematics ────────────────────────────
+// Parameters: [alpha_prev_rad, a_prev_m, d_m]  (a=0 for all Gen3 joints)
+const DH = [
+  [0,            0, 0.2848],
+  [-Math.PI/2,   0, 0.0118],
+  [ Math.PI/2,   0, 0.2506],
+  [-Math.PI/2,   0, 0.0114],
+  [ Math.PI/2,   0, 0.2085],
+  [-Math.PI/2,   0, 0.0116],
+  [ Math.PI/2,   0, 0.1059],
+];
+
+function mdhMat(alpha, a, d, theta) {
+  const ca = Math.cos(alpha), sa = Math.sin(alpha);
+  const ct = Math.cos(theta), st = Math.sin(theta);
+  const m = new THREE.Matrix4();
+  m.set(
+    ct,    -st,     0,    a,
+    st*ca,  ct*ca, -sa,  -sa*d,
+    st*sa,  ct*sa,  ca,   ca*d,
+    0,      0,      0,    1
+  );
+  return m;
+}
+
+function forwardKinematics(deg) {
+  const T = new THREE.Matrix4();
+  const pos = [new THREE.Vector3()];
+  DH.forEach(([alpha, a, d], i) => {
+    T.multiply(mdhMat(alpha, a, d, deg[i] * Math.PI / 180));
+    pos.push(new THREE.Vector3().setFromMatrixPosition(T));
+  });
+  return pos;   // 8 positions in DH (Z-up) frame
+}
+
+// ── Arm viewer setup ──────────────────────────────────────────────────────
+let armReady = false;
+let armRenderer, armCamera, armScene, armControls, armGroup;
+let linkMeshes = [], jointMeshes = [], armLine;
+
+function initArmViewer() {
+  const container = document.getElementById('armCanvas');
+  const w = container.clientWidth, h = container.clientHeight || 340;
+
+  armRenderer = new THREE.WebGLRenderer({antialias: true});
+  armRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  armRenderer.setSize(w, h);
+  armRenderer.setClearColor(0x0a0a0a);
+  container.appendChild(armRenderer.domElement);
+
+  armCamera = new THREE.PerspectiveCamera(45, w / h, 0.001, 20);
+  armCamera.position.set(0.7, 0.55, 0.7);
+
+  armScene = new THREE.Scene();
+  armScene.add(new THREE.AmbientLight(0xffffff, 0.45));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.9);
+  sun.position.set(1, 2, 1.5);
+  armScene.add(sun);
+
+  // armGroup: rotate DH (Z-up) → Three.js (Y-up): Rx(-90°)
+  armGroup = new THREE.Group();
+  armGroup.rotation.x = -Math.PI / 2;
+  armScene.add(armGroup);
+
+  // Table surface
+  const tg = new THREE.BoxGeometry(0.9, 0.015, 0.9);
+  const tm = new THREE.MeshLambertMaterial({color: 0x1a2030});
+  const table = new THREE.Mesh(tg, tm);
+  table.position.set(0, 0, -0.008);
+  armGroup.add(table);
+
+  // Grid
+  const grid = new THREE.GridHelper(0.9, 18, 0x222233, 0x1a1a28);
+  grid.rotation.x = Math.PI / 2;   // XY plane in DH frame
+  armGroup.add(grid);
+
+  // Base cylinder
+  const bg = new THREE.CylinderGeometry(0.055, 0.065, 0.08, 16);
+  const bm = new THREE.MeshLambertMaterial({color: 0x4caf50});
+  const base = new THREE.Mesh(bg, bm);
+  base.position.set(0, 0, 0.04);
+  base.rotation.x = Math.PI / 2;
+  armGroup.add(base);
+
+  // Pre-allocate link cylinders (unit length, scaled each frame)
+  const linkMat = new THREE.MeshLambertMaterial({color: 0x1565c0});
+  for (let i = 0; i < 7; i++) {
+    const g = new THREE.CylinderGeometry(0.022, 0.022, 1, 8);
+    const m = new THREE.Mesh(g, linkMat.clone());
+    armGroup.add(m);
+    linkMeshes.push(m);
+  }
+
+  // Pre-allocate joint spheres
+  for (let i = 0; i <= 7; i++) {
+    const r = i === 0 ? 0.04 : (i === 7 ? 0.022 : 0.030);
+    const c = i === 0 ? 0x4caf50 : (i === 7 ? 0xffc107 : 0x4fc3f7);
+    const g = new THREE.SphereGeometry(r, 12, 8);
+    const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({color: c}));
+    armGroup.add(m);
+    jointMeshes.push(m);
+  }
+
+  armControls = new THREE.OrbitControls(armCamera, armRenderer.domElement);
+  armControls.target.set(0, 0.3, 0);
+  armControls.update();
+
+  const ro = new ResizeObserver(() => {
+    const w = container.clientWidth, h = container.clientHeight || 340;
+    armCamera.aspect = w / h;
+    armCamera.updateProjectionMatrix();
+    armRenderer.setSize(w, h);
+  });
+  ro.observe(container);
+
+  (function loop() {
+    requestAnimationFrame(loop);
+    armControls.update();
+    armRenderer.render(armScene, armCamera);
+  })();
+
+  armReady = true;
+  updateArm([0,0,0,0,0,0,0]);
+}
+
+const _dhY = new THREE.Vector3(0, 1, 0);
+const _qTmp = new THREE.Quaternion();
+
+function updateArm(deg) {
+  const pos = forwardKinematics(deg);  // DH (Z-up) coordinates
+
+  // Joint spheres
+  pos.forEach((p, i) => {
+    if (jointMeshes[i]) jointMeshes[i].position.set(p.x, p.y, p.z);
+  });
+
+  // Link cylinders between consecutive joints
+  for (let i = 0; i < 7; i++) {
+    const a = pos[i], b = pos[i + 1];
+    const dir = new THREE.Vector3().subVectors(b, a);
+    const len = dir.length();
+    linkMeshes[i].position.copy(new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5));
+    linkMeshes[i].scale.set(1, len, 1);
+    if (len > 1e-4) {
+      _qTmp.setFromUnitVectors(_dhY, dir.normalize());
+      linkMeshes[i].quaternion.copy(_qTmp);
+    }
+  }
+}
+
+// ── Point cloud viewer setup ──────────────────────────────────────────────
+const MAX_PC = 12000;
+let pcRenderer, pcCamera, pcScene, pcControls, pcGeom, pcPoints;
+let pcReady = false, pcWs = null, pcStreaming = false;
+
+function initPcViewer() {
+  const container = document.getElementById('pcCanvas');
+  const w = container.clientWidth, h = container.clientHeight || 340;
+
+  pcRenderer = new THREE.WebGLRenderer({antialias: false});
+  pcRenderer.setPixelRatio(1);
+  pcRenderer.setSize(w, h);
+  pcRenderer.setClearColor(0x080808);
+  container.appendChild(pcRenderer.domElement);
+
+  pcCamera = new THREE.PerspectiveCamera(60, w / h, 0.001, 50);
+  pcCamera.position.set(0, 0, -0.4);
+  pcCamera.lookAt(0, 0, 0.8);
+
+  pcScene = new THREE.Scene();
+  pcScene.add(new THREE.AxesHelper(0.25));
+
+  // Pre-allocate BufferGeometry
+  pcGeom = new THREE.BufferGeometry();
+  const pos = new Float32Array(MAX_PC * 3);
+  const col = new Float32Array(MAX_PC * 3).fill(0.3);
+  pcGeom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  pcGeom.setAttribute('color',    new THREE.BufferAttribute(col, 3));
+  pcGeom.setDrawRange(0, 0);
+
+  pcPoints = new THREE.Points(pcGeom,
+    new THREE.PointsMaterial({size: 0.004, vertexColors: true, sizeAttenuation: true}));
+  pcScene.add(pcPoints);
+
+  pcControls = new THREE.OrbitControls(pcCamera, pcRenderer.domElement);
+  pcControls.target.set(0, 0, 0.8);
+  pcControls.update();
+
+  const ro = new ResizeObserver(() => {
+    const w = container.clientWidth, h = container.clientHeight || 340;
+    pcCamera.aspect = w / h;
+    pcCamera.updateProjectionMatrix();
+    pcRenderer.setSize(w, h);
+  });
+  ro.observe(container);
+
+  (function loop() {
+    requestAnimationFrame(loop);
+    pcControls.update();
+    pcRenderer.render(pcScene, pcCamera);
+  })();
+
+  pcReady = true;
+}
+
+function updatePointCloud(posArr, colArr, count) {
+  const n = Math.min(count, MAX_PC);
+  const p = pcGeom.attributes.position.array;
+  const c = pcGeom.attributes.color.array;
+  // RealSense frame: x=right, y=down, z=forward → flip y for Y-up display
+  for (let i = 0; i < n; i++) {
+    p[i*3]   =  posArr[i*3];
+    p[i*3+1] = -posArr[i*3+1];
+    p[i*3+2] =  posArr[i*3+2];
+    c[i*3]   = colArr[i*3]   / 255;
+    c[i*3+1] = colArr[i*3+1] / 255;
+    c[i*3+2] = colArr[i*3+2] / 255;
+  }
+  pcGeom.attributes.position.needsUpdate = true;
+  pcGeom.attributes.color.needsUpdate    = true;
+  pcGeom.setDrawRange(0, n);
+
+  const overlay = document.getElementById('pcOverlay');
+  if (overlay) overlay.style.display = 'none';
+  const dot = document.getElementById('dot-pc');
+  if (dot) dot.className = 'sdot on';
+}
+
+function togglePcStream() {
+  if (pcStreaming) {
+    pcStreaming = false;
+    if (pcWs) { pcWs.close(); pcWs = null; }
+    document.getElementById('btnPcStream').textContent = '▶ STREAM';
+    document.getElementById('btnPcStream').className = 'btn bg';
+    const dot = document.getElementById('dot-pc');
+    if (dot) dot.className = 'sdot';
+  } else {
+    pcStreaming = true;
+    document.getElementById('btnPcStream').textContent = '■ STOP';
+    document.getElementById('btnPcStream').className = 'btn br';
+    startPcWs();
+  }
+}
+
+function startPcWs() {
+  const src = document.getElementById('pcSource').value;
+  pcWs = new WebSocket(`ws://${location.host}/ws/pointcloud/${src}?token=${TOKEN}`);
+  pcWs.binaryType = 'arraybuffer';
+  pcWs.onmessage = ({data}) => {
+    const count = new DataView(data).getUint32(0, true);
+    if (count === 0) return;
+    const posF32 = new Float32Array(data, 4,          count * 3);
+    const colU8  = new Uint8Array  (data, 4 + count*12, count * 3);
+    updatePointCloud(posF32, colU8, count);
+  };
+  pcWs.onclose = () => {
+    if (pcStreaming) setTimeout(startPcWs, 2000);
+  };
+}
+
+// ── Init viewers after app is shown ──────────────────────────────────────
+const _origShowApp = showApp;
+showApp = function() {
+  _origShowApp();
+  setTimeout(() => {
+    initArmViewer();
+    initPcViewer();
+  }, 100);
+};
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 checkAuth();

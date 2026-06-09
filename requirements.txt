@@ -1,6 +1,7 @@
 fastapi>=0.110.0
 uvicorn[standard]>=0.29.0
 numpy>=1.24.0
+psutil>=5.9.0
 opencv-python>=4.9.0
 pyrealsense2>=2.54.0
 depthai>=2.24.0
