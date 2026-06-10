@@ -136,6 +136,19 @@ sudo apt install ros-humble-depthai-ros              # OAK-D ROS2 nodes
 Note: `rclpy` must come from the ROS install (`source /opt/ros/humble/setup.bash` before starting
 the server), not pip. Update `install.sh` and the systemd/launch instructions accordingly.
 
+#### 3.0.1 Compile Workspace Action Interfaces
+To enable the FastAPI backend to call the robot insertion script via ROS 2 actions, the `InsertContainer.action` interface must be built in the workspace:
+1. Verify `kortex_bringup/action/InsertContainer.action` is present in the workspace.
+2. Build the workspace using:
+   ```bash
+   colcon build --executor sequential --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DCMAKE_BUILD_PARALLEL_LEVEL=2
+   ```
+3. Source the workspace environment before launching `server.py`:
+   ```bash
+   source /opt/ros/humble/setup.bash
+   source ~/workspace/ros2_kortex_ws/install/setup.bash
+   ```
+
 ### 3.1 In-server ROS2 bridge (`kinova_server/ros2/bridge.py`) — primary approach
 A single `rclpy` node spinning in its own daemon thread (same pattern as the camera threads),
 gracefully disabled when `rclpy` isn't importable (so the server still runs on Windows for dev):
@@ -151,6 +164,28 @@ gracefully disabled when `rclpy` isn't importable (so the server still runs on W
 - **Robot topics of interest** (from `ros2_kortex`): `/joint_states`, `/tf`,
   `/robotiq_gripper_controller/...`, controller state topics.
 - Dashboard: new "ROS2" panel — topic list with type + Hz, click to echo (JSON view) or view (image).
+
+#### 3.1.2 ROS 2 Subprocess Manager (`kinova_server/ros2/processes.py`)
+To avoid manual CLI management, the server will handle the lifecycle of the ROS 2 camera launcher and fusion node:
+- **State tracker**: Keep track of running subprocess handles (`asyncio.subprocess.Process`).
+- **Endpoints**:
+  - `POST /api/ros2/process/start` with body `{"process": "system" | "fusion"}`
+  - `POST /api/ros2/process/stop` with body `{"process": "system" | "fusion"}`
+  - `GET /api/ros2/process/status` returning running/crashed/idle states.
+- **Log streaming**: WebSocket route `/ws/ros2/process/logs?name=system` to stream stdout/stderr of the `ros2 launch` or `ros2 run` command directly to a dashboard terminal view.
+- **Commands managed**:
+  - **System**: `ros2 launch kortex_bringup gen3_complete_system.launch.py robot_ip:=192.168.1.10` (runs `oak_camera_node.py` as a subprocess node).
+  - **Fusion**: `ros2 run kortex_bringup combine_cameras.py`
+
+#### 3.1.3 Action Client & Telemetry Bridge (`kinova_server/ros2/action_bridge.py`)
+- **Action Client (`/insert_container`)**:
+  - Expose `POST /api/ros2/insert/start` to trigger the insertion task with configurable options (`hover_above_top`, `approach_clearance`, `dry_run`, `use_dynamic_tf`).
+  - Expose `POST /api/ros2/insert/cancel` to issue a cancel request to the active action goal.
+  - Expose WebSocket `/ws/ros2/insert/feedback` to stream the current task phase (e.g., `Phase 0 — Approach`, `Phase 1 — Descend`) and completion progress percentage.
+- **Sensor Fusion Subscription**:
+  - Subscribe to `/fused_marker_square_center` (PoseStamped) and `/fused_corners` (PoseArray).
+  - Extract the raw X, Y, Z coordinates and orientation.
+  - Stream these values over `WS /ws/ros2/fusion` to power a live sensor diagnostics panel.
 
 ### 3.2 Standard bridges (low-code alternatives / complements)
 - **rosbridge_suite**: `ros-humble-rosbridge-server` exposes ws://host:9090; the dashboard could use
@@ -170,6 +205,18 @@ kortex feedback so this server can feed an existing ROS2 stack (MoveIt 2, etc.) 
   the LAN from WSL2 needs either `ROS_DOMAIN_ID` + mirrored networking (Win11 supports
   `networkingMode=mirrored` in `.wslconfig`) or simply rely on the bridges above.
 
+### 3.5 Dashboard Frontend UI Additions
+Introduce a new **"Automation & ROS 2 Control"** panel in the dashboard UI:
+1. **Subprocess Controllers**: Toggle buttons to start/stop the Complete System and Camera Fusion, showing status badges (Idle, Running, Error) and a collapsable live command line console log.
+2. **Camera Fusion Diagnostics**:
+   - Live displays for **Fused Center** coordinates: `X: +0.299 m`, `Y: -0.192 m`, `Z: +0.056 m`.
+   - Corner detection metrics (e.g. `4/4 (Perfect)`, `3/4 (Reconstructed)`, or `0/4 (Awaiting Markers)`).
+   - Feed statuses showing which camera feeds are active (`RealSense: Online`, `OAK-D: Online`, `Kinova Wrist: Offline`).
+3. **Container Insertion Controller**:
+   - Inputs for clearance, hover distance, and a `Dry Run` toggle.
+   - A large **"START CONTAINER INSERTION"** execution button and a red **"EMERGENCY CANCEL"** button.
+   - A live progress bar showing the active movement phases.
+
 ---
 
 ## Suggested execution order
@@ -182,7 +229,10 @@ kortex feedback so this server can feed an existing ROS2 stack (MoveIt 2, etc.) 
 | 4 | Shared point-cloud task (2.4) + Kinova poll split (2.5) | small | Low |
 | 5 | Security/cleanup items (2.6) | small | Low |
 | 6 | ROS2 bridge module + topics API + image relay (3.1) | ~1 day on the Linux box | Medium — needs hardware |
-| 7 | foxglove_bridge / rosbridge install + dashboard ROS2 panel (3.2) | small | Low |
+| 7 | Build workspace actions and implement subprocess manager (`processes.py`) (3.0.1, 3.1.2) | small | Low — process lifecycle |
+| 8 | Implement action client interface for `insert_to_container` and subscribe to fusion telemetry (3.1.3) | ~1 day | Medium — needs hardware |
+| 9 | Add dashboard ROS2 panel including process managers, diagnostics, and insertion progress controls (3.5) | ~half day | Low |
+| 10 | foxglove_bridge / rosbridge install & standard bridges (3.2) | small | Low |
 
 Steps 1–5 can be done and tested on Windows (threads degrade gracefully when SDKs are absent —
-they already do). Steps 6–7 require the Ubuntu 22.04 host with ROS2 Humble sourced.
+they already do). Steps 6–10 require the Ubuntu 22.04 host with ROS2 Humble sourced.
