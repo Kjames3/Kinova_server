@@ -18,19 +18,46 @@ from ..state import STATE
 log = logging.getLogger("kinova-server")
 
 
+def _protobuf_compat() -> None:
+    """kortex_api ships an old protobuf that references names removed from
+    ``collections`` in Python 3.9+ (e.g. ``collections.MutableMapping``). Alias
+    them back from ``collections.abc`` so the generated ``*_pb2`` modules import
+    on Python 3.10 (the Ubuntu 22.04 / ROS2 Humble default)."""
+    import collections
+    import collections.abc
+    for _n in ("MutableMapping", "Mapping", "Sequence", "Callable", "Iterable",
+               "MutableSequence", "Set", "MutableSet"):
+        if not hasattr(collections, _n):
+            setattr(collections, _n, getattr(collections.abc, _n))
+
+
+def _import_transport():
+    """Return the TCP transport class across kortex_api versions.
+
+    2.6 wheel exposes ``TransportClientTcp``; newer builds renamed it to
+    ``TCPTransport``."""
+    try:
+        from kortex_api.TransportClientTcp import TransportClientTcp
+        return TransportClientTcp
+    except ImportError:
+        from kortex_api.TCPTransport import TCPTransport
+        return TCPTransport
+
+
 def kinova_thread() -> None:
     try:
+        _protobuf_compat()
         from kortex_api.autogen.client_stubs.BaseClientRpc import BaseClient
         from kortex_api.autogen.client_stubs.BaseCyclicClientRpc import BaseCyclicClient
         from kortex_api.autogen.messages.Session_pb2 import CreateSessionInfo
         from kortex_api.RouterClient import RouterClient, RouterClientSendOptions
         from kortex_api.SessionManager import SessionManager
-        from kortex_api.TransportClientTcp import TransportClientTcp
+        TransportClient = _import_transport()
     except ImportError:
         log.warning("kortex_api not installed — Kinova arm disabled")
         return
 
-    transport = TransportClientTcp()
+    transport = TransportClient()
     router = RouterClient(transport, RouterClientSendOptions())
     try:
         transport.connect(CFG.kinova_ip, CFG.kinova_port)
