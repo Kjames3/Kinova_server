@@ -1,6 +1,9 @@
 # Kinova Server — Performance Refactor & ROS2 Humble Integration Plan
 
-> Status: planned, not yet implemented. Written 2026-06-10.
+> Status: implemented 2026-06-10 (package split + Part 2 perf fixes + Part 3 ROS2 bridge,
+> subprocess manager, action/fusion bridge, dashboard panel). Hardware-dependent paths
+> (cameras/arm/insertion action) verified to degrade gracefully; the InsertContainer action
+> interface still needs the workspace rebuild in 3.0.1 to go live. Written 2026-06-10.
 > Target runtime host: the Linux Kinova desktop (Ubuntu 22.04, `kinova@10.12.140.145`).
 > Dev machine: Windows 11 (browser dashboard works from Windows today; ROS2 work happens on the Linux host).
 

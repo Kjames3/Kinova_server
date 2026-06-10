@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kinova Gen3 Server</title>
+<!-- Three.js r128 (last version with global OrbitControls.js include) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- Login overlay -->
+<div id="lo">
+  <div class="lcard">
+    <h2>KINOVA ROBOT SERVER</h2>
+    <p>Remote control dashboard</p>
+    <input type="password" id="lpass" placeholder="PASSWORD" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="btn bp btn-fw" onclick="doLogin()">LOGIN</button>
+    <div class="lerr" id="lerr"></div>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app" style="display:none;flex-direction:column;height:100vh">
+
+  <header>
+    <div class="h-title">KINOVA GEN3</div>
+    <div class="h-sub">7DOF &middot; 2F-140</div>
+    <div class="h-metrics">
+      <div class="h-metric">CPU <span id="hCpu">--</span>%</div>
+      <div class="h-metric">MEM <span id="hMem">--</span>%</div>
+    </div>
+    <div id="hStatus" class="h-status offline">OFFLINE</div>
+    <button class="btn bn" style="font-size:.65em" onclick="doLogout()">LOGOUT</button>
+  </header>
+
+  <div class="layout">
+
+    <!-- ── Left sidebar ── -->
+    <div class="sl">
+      <span class="lbl">ROBOT ARM</span>
+      <div class="qrow">
+        <button class="btn bp" id="btnConnect" onclick="connectRobot()" style="flex:1">CONNECT</button>
+      </div>
+
+      <span class="lbl">JOINTS</span>
+      <div id="jsliders"></div>
+      <button class="btn bp btn-fw" onclick="sendJoints()">SEND TO ROBOT</button>
+      <button class="btn bn btn-fw" onclick="syncJointsFromRobot()" style="margin-top:3px;font-size:.68em">SYNC FROM ROBOT</button>
+
+      <span class="lbl">GRIPPER <span id="gPct" style="color:#4fc3f7">0%</span></span>
+      <div class="grip-row">
+        <input type="range" id="gSlider" min="0" max="100" value="0"
+          onmousedown="activeSl='g'" onmouseup="activeSl=null"
+          oninput="document.getElementById('gPct').textContent=this.value+'%'">
+      </div>
+      <div class="qrow">
+        <button class="btn bg" style="flex:1" onclick="setGripper(0)">OPEN</button>
+        <button class="btn bn" style="flex:1" onclick="setGripper(100)">CLOSE</button>
+        <button class="btn bp" onclick="sendGripper()">SET</button>
+      </div>
+
+      <span class="lbl">END EFFECTOR POSE</span>
+      <div class="pgrid">
+        <label>X</label><input id="pX" type="number" step="0.001" value="0.400">
+        <label>Y</label><input id="pY" type="number" step="0.001" value="0.000">
+        <label>Z</label><input id="pZ" type="number" step="0.001" value="0.400">
+        <label>RX</label><input id="pRX" type="number" step="0.1" value="180">
+        <label>RY</label><input id="pRY" type="number" step="0.1" value="0">
+        <label>RZ</label><input id="pRZ" type="number" step="0.1" value="90">
+      </div>
+      <button class="btn bp btn-fw" onclick="moveToPose()">MOVE TO POSE</button>
+
+      <span class="lbl">SPEED <span id="spdVal" style="color:#4fc3f7">50%</span></span>
+      <div class="spd-row">
+        <input type="range" id="spdSlider" min="0" max="100" value="50"
+          oninput="document.getElementById('spdVal').textContent=this.value+'%'">
+      </div>
+
+      <div class="qrow" style="margin-top:10px">
+        <button class="btn bn" style="flex:1" onclick="apiPost('/api/robot/home')">HOME</button>
+        <button class="btn bn" style="flex:1" onclick="apiPost('/api/robot/retract')">RETRACT</button>
+        <button class="btn bn" style="flex:1" onclick="apiPost('/api/robot/vertical')">VERTICAL</button>
+      </div>
+      <button class="btn br btn-fw" style="margin-top:4px" onclick="apiPost('/api/robot/stop')">&#9632; EMERGENCY STOP</button>
+    </div><!-- /sl -->
+
+    <!-- ── Cameras ── -->
+    <div class="cams">
+      <div class="cpanel">
+        <div class="chdr">
+          <span class="ctitle">GLOBAL D435i — REALSENSE</span>
+          <div class="sdot" id="dot-realsense"></div>
+          <button class="btn bn" onclick="toggleDepth('rs',this)">DEPTH ON</button>
+          <button class="btn bg" onclick="startCam('rs')">START</button>
+        </div>
+        <div class="cbody" id="rsBody"><div class="cam-off">CLICK START TO STREAM</div></div>
+      </div>
+
+      <div class="cpanel">
+        <div class="chdr">
+          <span class="ctitle">OAK-D PRO W — STEREO</span>
+          <div class="sdot" id="dot-oakd"></div>
+          <button class="btn bn" onclick="toggleDepth('oak',this)">DEPTH ON</button>
+          <button class="btn bg" onclick="startCam('oak')">START</button>
+        </div>
+        <div class="cbody" id="oakBody"><div class="cam-off">CLICK START TO STREAM</div></div>
+      </div>
+
+      <div style="display:flex;gap:8px;flex-shrink:0;min-height:0">
+        <div class="cpanel" style="flex:1;min-width:0">
+          <div class="chdr">
+            <span class="ctitle">KINOVA GEN3 — FORWARD KINEMATICS</span>
+            <div class="sdot on" style="background:#4fc3f7"></div>
+          </div>
+          <div id="armCanvas" style="height:340px;background:#0a0a0a;position:relative">
+            <div style="position:absolute;bottom:5px;left:8px;font-size:.6em;color:#333;pointer-events:none">
+              drag·orbit &nbsp; right-drag·pan &nbsp; scroll·zoom
+            </div>
+          </div>
+        </div>
+
+        <div class="cpanel" style="flex:1;min-width:0">
+          <div class="chdr">
+            <span class="ctitle">POINT CLOUD</span>
+            <div class="sdot" id="dot-pc"></div>
+            <select id="pcSource" style="background:#111;border:1px solid #2a2a2a;color:#aaa;font-size:.7em;padding:2px 5px;border-radius:2px">
+              <option value="realsense">RealSense D435i</option>
+              <option value="oakd">OAK-D Pro W</option>
+            </select>
+            <button class="btn bg" id="btnPcStream" onclick="togglePcStream()">&#9654; STREAM</button>
+          </div>
+          <div id="pcCanvas" style="height:340px;background:#0a0a0a;position:relative">
+            <div id="pcOverlay" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:.72em;color:#444;pointer-events:none">
+              Press STREAM to start
+            </div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /cams -->
+
+    <!-- ── Right sidebar ── -->
+    <div class="sr">
+
+      <!-- Automation & ROS 2 Control (PLAN 3.5) -->
+      <div class="rs-sec">
+        <span class="lbl" style="margin-top:0;display:flex;align-items:center;justify-content:space-between">
+          AUTOMATION &amp; ROS 2 <span id="ros2Avail" class="badge">…</span>
+        </span>
+
+        <!-- Subprocess controllers -->
+        <div class="proc-row">
+          <span class="pname">Complete System</span>
+          <span id="procBadge-system" class="badge idle">IDLE</span>
+          <button class="btn bn" style="font-size:.6em" onclick="toggleConsole('system')">LOG</button>
+          <button class="btn bp" onclick="toggleProcess('system',this)">START/STOP</button>
+        </div>
+        <div id="console-system" class="console"></div>
+        <div class="proc-row">
+          <span class="pname">Camera Fusion</span>
+          <span id="procBadge-fusion" class="badge idle">IDLE</span>
+          <button class="btn bn" style="font-size:.6em" onclick="toggleConsole('fusion')">LOG</button>
+          <button class="btn bp" onclick="toggleProcess('fusion',this)">START/STOP</button>
+        </div>
+        <div id="console-fusion" class="console"></div>
+
+        <!-- Fusion diagnostics -->
+        <span class="lbl">CAMERA FUSION DIAGNOSTICS</span>
+        <div class="diag">
+          <span class="k">Fused X</span><span class="v" id="fusX">--</span>
+          <span class="k">Fused Y</span><span class="v" id="fusY">--</span>
+          <span class="k">Fused Z</span><span class="v" id="fusZ">--</span>
+          <span class="k">Corners</span><span class="v" id="fusCorners" style="color:#777">0/4 (Awaiting Markers)</span>
+        </div>
+        <div style="margin-top:5px">
+          <div class="feed-stat"><span>RealSense</span><span id="feed-realsense" class="off">Offline</span></div>
+          <div class="feed-stat"><span>OAK-D</span><span id="feed-oakd" class="off">Offline</span></div>
+          <div class="feed-stat"><span>Kinova Wrist</span><span id="feed-kinova" class="off">Offline</span></div>
+        </div>
+
+        <!-- Container insertion -->
+        <span class="lbl">CONTAINER INSERTION</span>
+        <div class="ins-grid">
+          <label>Target X (m)<input id="insX" type="number" step="0.001" value="0.000"></label>
+          <label>Target Y (m)<input id="insY" type="number" step="0.001" value="0.000"></label>
+          <label>Hover (m)<input id="insHover" type="number" step="0.005" value="0.030"></label>
+          <label style="justify-content:flex-end">
+            <span class="ins-toggle" style="margin:0"><input type="checkbox" id="insDry"> Dry Run</span>
+            <span class="ins-toggle" style="margin:0"><input type="checkbox" id="insDyn" checked> Dynamic TF</span>
+          </label>
+        </div>
+        <button class="btn-exec" onclick="startInsertion()">START CONTAINER INSERTION</button>
+        <button class="btn-estop" onclick="cancelInsertion()">&#9632; EMERGENCY CANCEL</button>
+        <div class="progress"><div class="progress-bar" id="insBar"></div><div class="progress-txt" id="insBarTxt">0%</div></div>
+        <div style="font-size:.66em;color:#888;margin-top:4px">Phase: <span id="insPhase" style="color:#4fc3f7">idle</span></div>
+      </div>
+
+      <!-- Command -->
+      <div class="rs-sec">
+        <span class="lbl" style="margin-top:0">COMMAND</span>
+        <div class="cmd-row">
+          <input id="cmdIn" type="text" placeholder="home / open / close / stop ..." onkeydown="if(event.key==='Enter')sendCmd()">
+          <button class="btn bp" onclick="sendCmd()">SEND</button>
+        </div>
+        <div class="qrow">
+          <button class="btn bn" onclick="apiPost('/api/robot/home')">HOME</button>
+          <button class="btn bg" onclick="setGripper(0)">OPEN</button>
+          <button class="btn bn" onclick="setGripper(100)">CLOSE</button>
+          <button class="btn br" onclick="apiPost('/api/robot/stop')">STOP</button>
+        </div>
+      </div>
+
+      <!-- Log -->
+      <div class="rs-sec grow" style="flex:1.2">
+        <span class="lbl" style="margin-top:0;display:flex;align-items:center;justify-content:space-between">
+          LOG
+          <button class="btn bn" style="font-size:.6em;padding:1px 6px" onclick="document.getElementById('logBox').innerHTML=''">CLR</button>
+        </span>
+        <div id="logBox" class="log-box"></div>
+      </div>
+
+      <!-- Terminal -->
+      <div class="rs-sec grow" style="flex:1">
+        <span class="lbl" style="margin-top:0;display:flex;align-items:center;justify-content:space-between">
+          PYTHON TERMINAL
+          <button class="btn bp" style="font-size:.6em;padding:1px 8px" onclick="runScript()">&#9654; RUN</button>
+        </span>
+        <textarea id="termIn" class="term-input" placeholder="# Python script (runs on the server)&#10;print('hello from kinova')"></textarea>
+        <div id="termOut" class="term-out"></div>
+      </div>
+
+    </div><!-- /sr -->
+  </div><!-- /layout -->
+</div><!-- /app -->
+
+<script src="/static/viewers.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
