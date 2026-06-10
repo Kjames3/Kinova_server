@@ -14,6 +14,26 @@ from dataclasses import dataclass, field
 log = logging.getLogger("kinova-server")
 
 
+def _resolve_workspace_setup() -> str:
+    """Locate the kortex workspace overlay (``install/setup.bash``).
+
+    Honours ``ROS2_WORKSPACE_SETUP`` if set; otherwise probes the conventional
+    locations so the subprocess manager (PLAN 3.1.2) works without manual config.
+    """
+    explicit = os.environ.get("ROS2_WORKSPACE_SETUP")
+    if explicit:
+        return explicit
+    candidates = [
+        "~/ros2_kortex_ws/install/setup.bash",
+        "~/workspace/ros2_kortex_ws/install/setup.bash",
+    ]
+    for c in candidates:
+        p = os.path.expanduser(c)
+        if os.path.exists(p):
+            return p
+    return os.path.expanduser(candidates[0])
+
+
 def _resolve_password() -> str:
     """Return the dashboard password.
 
@@ -52,12 +72,7 @@ class Config:
     robot_ip: str = field(default_factory=lambda: os.environ.get("ROBOT_IP", "192.168.1.10"))
     # Workspace overlay to source before launching ROS2 subprocesses. If unset,
     # we try the conventional location used in PLAN 3.0.1.
-    ros2_workspace_setup: str = field(
-        default_factory=lambda: os.environ.get(
-            "ROS2_WORKSPACE_SETUP",
-            os.path.expanduser("~/workspace/ros2_kortex_ws/install/setup.bash"),
-        )
-    )
+    ros2_workspace_setup: str = field(default_factory=_resolve_workspace_setup)
     ros2_distro_setup: str = field(
         default_factory=lambda: os.environ.get("ROS2_DISTRO_SETUP", "/opt/ros/humble/setup.bash")
     )
