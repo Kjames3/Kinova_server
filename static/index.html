@@ -7,6 +7,10 @@
 <!-- Three.js r128 (last version with global OrbitControls.js include) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<!-- item 3: URDF arm model loaders -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/ColladaLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/urdf-loader@0.12.1/umd/URDFLoader.js"></script>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -44,6 +48,10 @@
       <div class="qrow">
         <button class="btn bp" id="btnConnect" onclick="connectRobot()" style="flex:1">CONNECT</button>
       </div>
+
+      <span class="lbl">END EFFECTOR</span>
+      <select id="eeSelect" class="sel" style="width:100%" onchange="setEndEffector(this.value)"></select>
+      <div id="eeInfo" style="font-size:.62em;color:#888;margin-top:3px"></div>
 
       <span class="lbl">JOINTS</span>
       <div id="jsliders"></div>
@@ -109,13 +117,25 @@
         <div class="cbody" id="oakBody"><div class="cam-off">CLICK START TO STREAM</div></div>
       </div>
 
+      <!-- Kinova wrist (bracelet) camera — relayed from ROS2 /camera/color/image_raw -->
+      <div class="cpanel">
+        <div class="chdr">
+          <span class="ctitle">KINOVA WRIST — BRACELET VISION</span>
+          <div class="sdot" id="dot-wrist"></div>
+          <button class="btn bn" onclick="toggleProcess('wrist',this)">VISION NODE</button>
+          <button class="btn bg" onclick="startCam('wrist')">START</button>
+        </div>
+        <div class="cbody" id="wristBody"><div class="cam-off">START VISION NODE, THEN STREAM</div></div>
+      </div>
+
       <div style="display:flex;gap:8px;flex-shrink:0;min-height:0">
         <div class="cpanel" style="flex:1;min-width:0">
           <div class="chdr">
-            <span class="ctitle">KINOVA GEN3 — FORWARD KINEMATICS</span>
+            <span class="ctitle">KINOVA GEN3 — 3D MODEL</span>
             <div class="sdot on" style="background:#4fc3f7"></div>
+            <button class="btn bn" style="font-size:.6em" onclick="toggleArmModel()">MESH / SIMPLE</button>
           </div>
-          <div id="armCanvas" style="height:340px;background:#0a0a0a;position:relative">
+          <div id="armCanvas" style="height:340px;background:#1e1e1e;position:relative">
             <div style="position:absolute;bottom:5px;left:8px;font-size:.6em;color:#333;pointer-events:none">
               drag·orbit &nbsp; right-drag·pan &nbsp; scroll·zoom
             </div>
@@ -126,13 +146,14 @@
           <div class="chdr">
             <span class="ctitle">POINT CLOUD</span>
             <div class="sdot" id="dot-pc"></div>
-            <select id="pcSource" style="background:#111;border:1px solid #2a2a2a;color:#aaa;font-size:.7em;padding:2px 5px;border-radius:2px">
+            <select id="pcSource" class="sel" style="font-size:.7em">
               <option value="realsense">RealSense D435i</option>
               <option value="oakd">OAK-D Pro W</option>
+              <option value="fused">Fused (ROS2)</option>
             </select>
             <button class="btn bg" id="btnPcStream" onclick="togglePcStream()">&#9654; STREAM</button>
           </div>
-          <div id="pcCanvas" style="height:340px;background:#0a0a0a;position:relative">
+          <div id="pcCanvas" style="height:340px;background:#1e1e1e;position:relative">
             <div id="pcOverlay" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:.72em;color:#444;pointer-events:none">
               Press STREAM to start
             </div>
@@ -159,12 +180,26 @@
         </div>
         <div id="console-system" class="console"></div>
         <div class="proc-row">
-          <span class="pname">Camera Fusion</span>
+          <span class="pname">Marker Fusion</span>
           <span id="procBadge-fusion" class="badge idle">IDLE</span>
           <button class="btn bn" style="font-size:.6em" onclick="toggleConsole('fusion')">LOG</button>
           <button class="btn bp" onclick="toggleProcess('fusion',this)">START/STOP</button>
         </div>
         <div id="console-fusion" class="console"></div>
+        <div class="proc-row">
+          <span class="pname">Point-cloud Fusion</span>
+          <span id="procBadge-pcfusion" class="badge idle">IDLE</span>
+          <button class="btn bn" style="font-size:.6em" onclick="toggleConsole('pcfusion')">LOG</button>
+          <button class="btn bp" onclick="toggleProcess('pcfusion',this)">START/STOP</button>
+        </div>
+        <div id="console-pcfusion" class="console"></div>
+        <div class="proc-row">
+          <span class="pname">Wrist Vision</span>
+          <span id="procBadge-wrist" class="badge idle">IDLE</span>
+          <button class="btn bn" style="font-size:.6em" onclick="toggleConsole('wrist')">LOG</button>
+          <button class="btn bp" onclick="toggleProcess('wrist',this)">START/STOP</button>
+        </div>
+        <div id="console-wrist" class="console"></div>
 
         <!-- Fusion diagnostics -->
         <span class="lbl">CAMERA FUSION DIAGNOSTICS</span>
@@ -213,7 +248,7 @@
       </div>
 
       <!-- Log -->
-      <div class="rs-sec grow" style="flex:1.2">
+      <div class="rs-sec grow">
         <span class="lbl" style="margin-top:0;display:flex;align-items:center;justify-content:space-between">
           LOG
           <button class="btn bn" style="font-size:.6em;padding:1px 6px" onclick="document.getElementById('logBox').innerHTML=''">CLR</button>
@@ -222,7 +257,7 @@
       </div>
 
       <!-- Terminal -->
-      <div class="rs-sec grow" style="flex:1">
+      <div class="rs-sec grow">
         <span class="lbl" style="margin-top:0;display:flex;align-items:center;justify-content:space-between">
           PYTHON TERMINAL
           <button class="btn bp" style="font-size:.6em;padding:1px 8px" onclick="runScript()">&#9654; RUN</button>

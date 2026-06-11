@@ -7,8 +7,8 @@ from fastapi.responses import JSONResponse
 
 from .. import auth as _auth
 from ..robot import kinova
-from ..state import STATE
-from .models import CartesianPose, GripperCmd, JointAngles
+from ..state import END_EFFECTORS, STATE
+from .models import CartesianPose, EndEffectorReq, GripperCmd, JointAngles
 
 router = APIRouter()
 
@@ -16,6 +16,20 @@ router = APIRouter()
 @router.get("/api/robot/state")
 def robot_state(t: str = Depends(_auth.auth)):
     return JSONResponse(STATE.robot.snapshot())
+
+
+# ── End-effector selection (PLAN GUI item 7) ────────────────────────────────
+@router.get("/api/robot/end_effector")
+def get_end_effector(t: str = Depends(_auth.auth)):
+    return {"selected": STATE.end_effector, "options": END_EFFECTORS}
+
+
+@router.post("/api/robot/end_effector")
+def set_end_effector(body: EndEffectorReq, t: str = Depends(_auth.auth)):
+    if body.name not in END_EFFECTORS:
+        raise HTTPException(400, f"unknown end effector '{body.name}'")
+    STATE.end_effector = body.name
+    return {"selected": STATE.end_effector, "config": END_EFFECTORS[body.name]}
 
 
 def _run(fn, *a):

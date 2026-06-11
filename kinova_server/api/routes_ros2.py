@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from .. import auth as _auth
 from ..ros2.action_bridge import ACTIONS
 from ..ros2.bridge import BRIDGE
+from ..ros2.pointcloud_bridge import FUSED_PC
 from ..ros2.processes import MANAGER
 from .models import InsertReq, ProcessReq
 from .ws import _accept
@@ -120,6 +121,26 @@ async def ws_process_logs(ws: WebSocket):
         pass
     finally:
         mp.broadcaster.unsubscribe(q)
+
+
+# ── fused point cloud (PLAN GUI item 4) ─────────────────────────────────────
+@router.websocket("/ws/pointcloud/fused")
+async def ws_pc_fused(ws: WebSocket):
+    if not await _accept(ws):
+        return
+    ok, err = FUSED_PC.add_subscriber()
+    if not ok:
+        await ws.close(code=1011)
+        return
+    q = FUSED_PC.broadcaster.subscribe(maxsize=2)
+    try:
+        while True:
+            await ws.send_bytes(await q.get())
+    except WebSocketDisconnect:
+        pass
+    finally:
+        FUSED_PC.broadcaster.unsubscribe(q)
+        FUSED_PC.remove_subscriber()
 
 
 # ── insertion action ────────────────────────────────────────────────────────

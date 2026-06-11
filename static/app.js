@@ -51,6 +51,7 @@ function showApp() {
   setInterval(pollStatus, 4000);
   setInterval(pollSystem, 3000);
   initRos2Panel();
+  initEndEffector();
   setTimeout(() => { initArmViewer(); initPcViewer(); }, 100);
 }
 
@@ -167,16 +168,58 @@ function startCam(cam) {
     document.getElementById('rsBody').innerHTML =
       `<img class="cam-rgb" src="/api/cameras/realsense/rgb?token=${t}&_=${Date.now()}" alt="">` +
       (depthOn.rs ? `<img class="cam-depth" src="/api/cameras/realsense/depth?token=${t}&_=${Date.now()}" alt="">` : '');
-  } else {
+  } else if (cam === 'oak') {
     document.getElementById('oakBody').innerHTML =
       `<img class="cam-rgb" src="/api/cameras/oakd/rgb?token=${t}&_=${Date.now()}" alt="">` +
       (depthOn.oak ? `<img class="cam-depth" src="/api/cameras/oakd/depth?token=${t}&_=${Date.now()}" alt="">` : '');
+  } else if (cam === 'wrist') {
+    // ROS2 image relay of the Kinova bracelet camera (needs the Wrist Vision node running)
+    const topic = encodeURIComponent('/camera/color/image_raw');
+    document.getElementById('wristBody').innerHTML =
+      `<img class="cam-rgb" src="/api/ros2/image?name=${topic}&token=${t}&_=${Date.now()}" alt=""` +
+      ` onerror="this.parentNode.innerHTML='<div class=cam-off>NO WRIST FEED — START VISION NODE</div>'">`;
   }
 }
 function toggleDepth(cam, btn) {
   depthOn[cam] = !depthOn[cam];
   btn.textContent = depthOn[cam] ? 'DEPTH ON' : 'DEPTH OFF';
   btn.className = depthOn[cam] ? 'btn bn' : 'btn bp';
+}
+
+// ── End effector (PLAN GUI item 7) ──────────────────────────────────────────
+let eeOptions = {};
+async function initEndEffector() {
+  try {
+    const d = await fetch(`/api/robot/end_effector?token=${TOKEN}`).then(r=>r.json());
+    eeOptions = d.options || {};
+    const sel = document.getElementById('eeSelect');
+    sel.innerHTML = Object.entries(eeOptions)
+      .map(([k,v]) => `<option value="${k}">${v.label}</option>`).join('');
+    const saved = localStorage.getItem('kv2ee');
+    const active = (saved && eeOptions[saved]) ? saved : d.selected;
+    sel.value = active;
+    if (active !== d.selected) await postEndEffector(active);
+    applyEndEffector(active);
+  } catch {}
+}
+async function setEndEffector(name) {
+  localStorage.setItem('kv2ee', name);
+  await postEndEffector(name);
+  applyEndEffector(name);
+}
+async function postEndEffector(name) {
+  await apiPost('/api/robot/end_effector', {name});
+}
+function applyEndEffector(name) {
+  const cfg = eeOptions[name] || {};
+  // gripper controls only make sense for a real gripper
+  const hasGrip = cfg.has_gripper !== false;
+  const gSlider = document.getElementById('gSlider');
+  if (gSlider) gSlider.disabled = !hasGrip;
+  document.getElementById('eeInfo').textContent =
+    `TCP +${(cfg.tcp_offset||0).toFixed(3)} m (${cfg.tcp_axis||'z'})` + (hasGrip ? '' : ' · rigid tool');
+  // hook for the URDF viewer (item 3) to swap the gripper model
+  if (typeof setArmModel === 'function') setArmModel(cfg.model || name);
 }
 
 // ── Status & system ─────────────────────────────────────────────────────────
@@ -270,11 +313,14 @@ async function refreshRos2Status() {
     const avail = s.available;
     document.getElementById('ros2Avail').textContent = avail ? 'BRIDGE ONLINE' : 'BRIDGE OFFLINE';
     document.getElementById('ros2Avail').className = 'badge ' + (avail ? 'running' : 'error');
-    ['system','fusion'].forEach(name => {
+    ['system','fusion','pcfusion','wrist'].forEach(name => {
       const st = (s.processes[name] || {}).state || 'idle';
       const b = document.getElementById(`procBadge-${name}`);
       if (b) { b.textContent = st.toUpperCase(); b.className = 'badge ' + st; }
     });
+    const wrun = (s.processes.wrist || {}).running;
+    const wd = document.getElementById('dot-wrist');
+    if (wd) wd.className = 'sdot' + (wrun ? ' on' : '');
   } catch {}
 }
 

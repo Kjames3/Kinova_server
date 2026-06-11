@@ -175,6 +175,21 @@ class RobotState:
             return d
 
 
+# End-effector registry (PLAN GUI item 7). ``tcp_offset`` is the tool-tip
+# distance from the end_effector_link flange along ``tcp_axis`` (EE frame); the
+# assembly-tip value (0.255 m, −X) comes from the pen_tip joint in the URDF.
+END_EFFECTORS: Dict[str, Dict[str, Any]] = {
+    "robotiq_2f_140": {
+        "label": "Robotiq 2F-140", "has_gripper": True,
+        "tcp_offset": 0.160, "tcp_axis": "z", "model": "gen3_robotiq_2f_140",
+    },
+    "assembly_tip": {
+        "label": "Assembly Tip", "has_gripper": False,
+        "tcp_offset": 0.255, "tcp_axis": "-x", "model": "gen3_assembly_tip",
+    },
+}
+
+
 class AppState:
     """The one shared object. Hardware threads and routers read from here."""
 
@@ -185,6 +200,7 @@ class AppState:
         )
         self.robot = RobotState()
         self.status: Dict[str, bool] = {"realsense": False, "oakd": False, "kinova": False}
+        self.end_effector: str = "robotiq_2f_140"   # PLAN GUI item 7
         self.stop_event = threading.Event()
         self.loop: Optional[asyncio.AbstractEventLoop] = None
 

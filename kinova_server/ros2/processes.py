@@ -31,6 +31,10 @@ log = logging.getLogger("kinova-server")
 COMMANDS: Dict[str, str] = {
     "system": f"ros2 launch kortex_bringup gen3_complete_system.launch.py robot_ip:={CFG.robot_ip}",
     "fusion": "ros2 run kortex_bringup combine_cameras.py",
+    # PLAN GUI item 4 — point-cloud fusion node → publishes /fused_pointcloud
+    "pcfusion": "ros2 launch kinova_gen3_7dof_robotiq_2f_140_moveit_config fusion.launch.py",
+    # PLAN GUI item 6 — Kinova wrist (bracelet) vision → /camera/color/image_raw
+    "wrist": f"ros2 launch kinova_vision kinova_vision.launch.py device:={CFG.robot_ip}",
 }
 
 

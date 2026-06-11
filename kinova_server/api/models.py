@@ -28,6 +28,10 @@ class GripperCmd(BaseModel):
     position: float  # 0.0–1.0
 
 
+class EndEffectorReq(BaseModel):
+    name: str  # key in state.END_EFFECTORS
+
+
 class ProcessReq(BaseModel):
     process: str  # "system" | "fusion"
 

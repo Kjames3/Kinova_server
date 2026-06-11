@@ -1,11 +1,27 @@
+/* ── Theme palette (PLAN GUI item 1): one place to tune the greys ── */
+:root{
+  --bg:#1e1e1e;          /* page background (was #111) */
+  --header:#242424;      /* header bar (was #0c0c0c) */
+  --panel:#2a2a2a;       /* cards / camera panels (was #181818) */
+  --panel-2:#242424;     /* input fields (was #181818) */
+  --chdr:#222;           /* panel headers (was #0e0e0e) */
+  --inset:#1a1a1a;       /* logs / canvases / consoles (was #0a0a0a/#080808) */
+  --inset-2:#181818;     /* deepest inset (was #060606) */
+  --cam-bg:#141414;      /* camera image backdrop (was pure #000) */
+  --border:#383838;      /* hairlines (was #1e1e1e/#222/#252525) */
+  --border-2:#3a3a3a;    /* input borders (was #2a2a2a) */
+  --accent:#4fc3f7;
+  --text:#d0d0d0;
+}
+
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Courier New',monospace;background:#111;color:#d0d0d0;overflow:hidden;height:100vh;display:flex;flex-direction:column}
+body{font-family:'Courier New',monospace;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;display:flex;flex-direction:column}
 
 /* ── Header ── */
-header{flex-shrink:0;height:38px;background:#0c0c0c;border-bottom:1px solid #252525;display:flex;align-items:center;padding:0 14px;gap:16px}
-.h-title{color:#4fc3f7;font-size:.8em;font-weight:bold;letter-spacing:.12em}
-.h-sub{color:#555;font-size:.72em;letter-spacing:.06em}
-.h-metrics{display:flex;gap:14px;font-size:.72em;color:#666;margin-left:auto}
+header{flex-shrink:0;height:38px;background:var(--header);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 14px;gap:16px}
+.h-title{color:var(--accent);font-size:.8em;font-weight:bold;letter-spacing:.12em}
+.h-sub{color:#777;font-size:.72em;letter-spacing:.06em}
+.h-metrics{display:flex;gap:14px;font-size:.72em;color:#888;margin-left:auto}
 .h-metric span{color:#90caf9}
 .h-status{font-size:.7em;padding:2px 10px;border-radius:10px;cursor:pointer}
 .h-status.online{background:#1b3a1b;color:#81c784}
@@ -16,121 +32,127 @@ header{flex-shrink:0;height:38px;background:#0c0c0c;border-bottom:1px solid #252
 
 /* ── Sidebars ── */
 .sl,.sr{flex-shrink:0;overflow-y:auto;padding:10px 12px}
-.sl{width:228px;border-right:1px solid #1e1e1e}
-.sr{width:300px;border-left:1px solid #1e1e1e;display:flex;flex-direction:column;gap:0}
+.sl{width:228px;border-right:1px solid var(--border)}
+.sr{width:300px;border-left:1px solid var(--border);display:flex;flex-direction:column;gap:0}
 
 /* ── Cameras main ── */
 .cams{flex:1;overflow-y:auto;padding:8px 10px;display:flex;flex-direction:column;gap:8px}
 
 /* ── Section labels ── */
-.lbl{font-size:.62em;color:#555;letter-spacing:.12em;display:block;margin:10px 0 5px;border-bottom:1px solid #1e1e1e;padding-bottom:3px}
+.lbl{font-size:.62em;color:#777;letter-spacing:.12em;display:block;margin:10px 0 5px;border-bottom:1px solid var(--border);padding-bottom:3px}
 .lbl:first-child{margin-top:0}
 
 /* ── Buttons ── */
 .btn{padding:4px 10px;border:none;border-radius:3px;cursor:pointer;font-size:.74em;font-family:inherit;letter-spacing:.04em}
 .bp{background:#0d47a1;color:#90caf9}.bp:hover{background:#1565c0}
 .bg{background:#1b3a1b;color:#81c784}.bg:hover{background:#2e7d32}
-.bn{background:#1e1e1e;color:#888;border:1px solid #2a2a2a}.bn:hover{background:#2a2a2a;color:#bbb}
+.bn{background:#333;color:#aaa;border:1px solid var(--border-2)}.bn:hover{background:#3d3d3d;color:#ddd}
 .br{background:#3a0d0d;color:#ef9a9a}.br:hover{background:#c62828;color:#fff}
 .btn-fw{width:100%;margin-top:5px;padding:6px}
 .btn:disabled{opacity:.4;cursor:not-allowed}
 
 /* ── Joint rows ── */
 .jrow{display:flex;align-items:center;gap:5px;margin-bottom:3px}
-.jlbl{font-size:.68em;color:#666;width:18px;flex-shrink:0}
-.jrow input[type=range]{flex:1;accent-color:#4fc3f7;height:3px;cursor:pointer}
-.jval{font-size:.7em;color:#4fc3f7;width:44px;text-align:right;flex-shrink:0}
+.jlbl{font-size:.68em;color:#888;width:18px;flex-shrink:0}
+.jrow input[type=range]{flex:1;accent-color:var(--accent);height:3px;cursor:pointer}
+.jval{font-size:.7em;color:var(--accent);width:44px;text-align:right;flex-shrink:0}
 .jrow input[type=range]::-webkit-slider-thumb{width:12px;height:12px}
 
 /* ── Pose grid ── */
 .pgrid{display:grid;grid-template-columns:26px 1fr 26px 1fr;gap:3px 5px;align-items:center;margin-bottom:5px}
-.pgrid label{font-size:.68em;color:#666;text-align:right}
-.pgrid input{background:#181818;border:1px solid #2a2a2a;color:#bbb;padding:2px 4px;border-radius:2px;font-size:.72em;font-family:inherit;width:100%}
+.pgrid label{font-size:.68em;color:#888;text-align:right}
+.pgrid input{background:var(--panel-2);border:1px solid var(--border-2);color:#ccc;padding:2px 4px;border-radius:2px;font-size:.72em;font-family:inherit;width:100%}
 .pgrid input:focus{outline:none;border-color:#1565c0}
+
+/* ── Select (EE picker, pc source) ── */
+.sel{background:var(--panel-2);border:1px solid var(--border-2);color:#bbb;font-size:.72em;padding:3px 5px;border-radius:2px;font-family:inherit}
 
 /* ── Gripper ── */
 .grip-row{display:flex;align-items:center;gap:6px;margin-bottom:5px}
-.grip-row input[type=range]{flex:1;accent-color:#4fc3f7}
-.grip-pct{font-size:.72em;color:#4fc3f7;width:32px;text-align:right}
+.grip-row input[type=range]{flex:1;accent-color:var(--accent)}
+.grip-pct{font-size:.72em;color:var(--accent);width:32px;text-align:right}
 
 /* ── Quick button rows ── */
 .qrow{display:flex;gap:4px;margin-top:4px;flex-wrap:wrap}
 
 /* ── Camera panels ── */
-.cpanel{background:#181818;border:1px solid #222;border-radius:5px;overflow:hidden}
-.chdr{background:#0e0e0e;padding:6px 10px;display:flex;align-items:center;gap:7px;font-size:.72em;color:#888;letter-spacing:.06em}
+.cpanel{background:var(--panel);border:1px solid var(--border);border-radius:5px;overflow:hidden}
+.chdr{background:var(--chdr);padding:6px 10px;display:flex;align-items:center;gap:7px;font-size:.72em;color:#aaa;letter-spacing:.06em}
 .chdr .ctitle{flex:1}
-.sdot{width:7px;height:7px;border-radius:50%;background:#333;flex-shrink:0}
+.sdot{width:7px;height:7px;border-radius:50%;background:#555;flex-shrink:0}
 .sdot.on{background:#4caf50}
-.cbody{display:flex;background:#000;height:200px}
-.cbody img{object-fit:contain;background:#000}
-.cam-rgb{flex:1;border-right:1px solid #111}
+.cbody{display:flex;background:var(--cam-bg);height:200px}
+.cbody img{object-fit:contain;background:var(--cam-bg)}
+.cam-rgb{flex:1;border-right:1px solid var(--inset)}
 .cam-depth{width:38%}
-.cam-off{flex:1;display:flex;align-items:center;justify-content:center;font-size:.72em;color:#333;letter-spacing:.08em}
+.cam-off{flex:1;display:flex;align-items:center;justify-content:center;font-size:.72em;color:#555;letter-spacing:.08em}
 
 /* ── Right sidebar sections ── */
-.rs-sec{padding:10px 12px;border-bottom:1px solid #1a1a1a;flex-shrink:0}
-.rs-sec.grow{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.rs-sec{padding:10px 12px;border-bottom:1px solid var(--border);flex-shrink:0}
+/* item 5: don't let log/terminal grow unbounded and squeeze the ROS2 panel —
+   give them fixed heights and let the whole sidebar scroll instead. */
+.rs-sec.grow{flex:none;display:flex;flex-direction:column}
 
 /* ── Command ── */
 .cmd-row{display:flex;gap:5px;margin-bottom:5px}
-.cmd-row input{flex:1;background:#181818;border:1px solid #2a2a2a;color:#bbb;padding:4px 7px;border-radius:3px;font-size:.74em;font-family:inherit}
+.cmd-row input{flex:1;background:var(--panel-2);border:1px solid var(--border-2);color:#ccc;padding:4px 7px;border-radius:3px;font-size:.74em;font-family:inherit}
 .cmd-row input:focus{outline:none;border-color:#1565c0}
 
 /* ── Log ── */
-.log-box{flex:1;overflow-y:auto;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:3px;padding:5px 7px;font-size:.68em;min-height:0}
-.ll-i{color:#90caf9}.ll-w{color:#ffb74d}.ll-e{color:#ef5350}.ll-d{color:#555}
+.log-box{height:200px;overflow-y:auto;background:var(--inset);border:1px solid var(--border);border-radius:3px;padding:5px 7px;font-size:.68em}
+.ll-i{color:#90caf9}.ll-w{color:#ffb74d}.ll-e{color:#ef5350}.ll-d{color:#888}
 
 /* ── Terminal ── */
-.term-input{width:100%;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:3px 3px 0 0;color:#ccc;font-family:'Courier New',monospace;font-size:.72em;padding:6px;resize:none;height:90px}
+.term-input{width:100%;background:var(--inset);border:1px solid var(--border);border-radius:3px 3px 0 0;color:#ddd;font-family:'Courier New',monospace;font-size:.72em;padding:6px;resize:none;height:80px}
 .term-input:focus{outline:none;border-color:#1565c0}
-.term-out{flex:1;overflow-y:auto;background:#0a0a0a;border:1px solid #1a1a1a;border-top:none;border-radius:0 0 3px 3px;padding:5px 7px;font-size:.68em;color:#4fc3f7;font-family:monospace;min-height:0}
+.term-out{height:140px;overflow-y:auto;background:var(--inset);border:1px solid var(--border);border-top:none;border-radius:0 0 3px 3px;padding:5px 7px;font-size:.68em;color:var(--accent);font-family:monospace}
 
 /* ── Login overlay ── */
-#lo{position:fixed;inset:0;background:#0a0a0ae8;display:flex;align-items:center;justify-content:center;z-index:999}
-.lcard{background:#1a1a1a;border:1px solid #2e2e2e;border-radius:8px;padding:32px 28px;width:300px;text-align:center}
-.lcard h2{color:#4fc3f7;font-size:1em;margin-bottom:6px;letter-spacing:.08em}
-.lcard p{color:#666;font-size:.72em;margin-bottom:18px}
-.lcard input{width:100%;background:#111;border:1px solid #333;color:#ddd;padding:8px 10px;border-radius:3px;font-family:inherit;font-size:.85em;margin-bottom:10px;text-align:center;letter-spacing:.1em}
+#lo{position:fixed;inset:0;background:#1a1a1ae8;display:flex;align-items:center;justify-content:center;z-index:999}
+.lcard{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:32px 28px;width:300px;text-align:center}
+.lcard h2{color:var(--accent);font-size:1em;margin-bottom:6px;letter-spacing:.08em}
+.lcard p{color:#888;font-size:.72em;margin-bottom:18px}
+.lcard input{width:100%;background:var(--bg);border:1px solid var(--border-2);color:#ddd;padding:8px 10px;border-radius:3px;font-family:inherit;font-size:.85em;margin-bottom:10px;text-align:center;letter-spacing:.1em}
 .lcard input:focus{outline:none;border-color:#1565c0}
 .lerr{color:#ef5350;font-size:.75em;margin-top:6px;min-height:16px}
 
 /* ── Speed ── */
 .spd-row{display:flex;align-items:center;gap:8px}
-.spd-row input{flex:1;accent-color:#4fc3f7}
-.spd-val{font-size:.72em;color:#4fc3f7;width:32px;text-align:right}
+.spd-row input{flex:1;accent-color:var(--accent)}
+.spd-val{font-size:.72em;color:var(--accent);width:32px;text-align:right}
 
 /* ── ROS2 / Automation panel (PLAN 3.5) ── */
-.badge{font-size:.62em;padding:1px 7px;border-radius:9px;letter-spacing:.06em;background:#222;color:#888}
-.badge.idle{background:#222;color:#888}
+.badge{font-size:.62em;padding:1px 7px;border-radius:9px;letter-spacing:.06em;background:#333;color:#aaa}
+.badge.idle{background:#333;color:#aaa}
 .badge.running{background:#1b3a1b;color:#81c784}
 .badge.error,.badge.crashed{background:#3a1b1b;color:#e57373}
 .badge.stopped{background:#2a2410;color:#ffb74d}
 .proc-row{display:flex;align-items:center;gap:6px;margin-bottom:5px}
-.proc-row .pname{flex:1;font-size:.72em;color:#aaa}
-.console{height:120px;overflow-y:auto;background:#060606;border:1px solid #1a1a1a;border-radius:3px;padding:4px 6px;font-size:.64em;color:#7fd6a8;white-space:pre-wrap;display:none;margin-top:4px}
+.proc-row .pname{flex:1;font-size:.72em;color:#bbb}
+.console{height:120px;overflow-y:auto;background:var(--inset-2);border:1px solid var(--border);border-radius:3px;padding:4px 6px;font-size:.64em;color:#7fd6a8;white-space:pre-wrap;display:none;margin-top:4px}
 .console.open{display:block}
 .diag{display:grid;grid-template-columns:auto 1fr;gap:3px 8px;font-size:.72em;margin-top:4px}
-.diag .k{color:#666}
-.diag .v{color:#4fc3f7;text-align:right;font-variant-numeric:tabular-nums}
+.diag .k{color:#888}
+.diag .v{color:var(--accent);text-align:right;font-variant-numeric:tabular-nums}
 .feed-stat{display:flex;justify-content:space-between;font-size:.68em;margin:2px 0}
-.feed-stat .on{color:#81c784}.feed-stat .off{color:#777}
+.feed-stat .on{color:#81c784}.feed-stat .off{color:#999}
 .ins-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 6px;margin-bottom:6px}
-.ins-grid label{font-size:.64em;color:#666;display:flex;flex-direction:column;gap:2px}
-.ins-grid input{background:#181818;border:1px solid #2a2a2a;color:#bbb;padding:3px 5px;border-radius:2px;font-size:.74em;font-family:inherit}
-.ins-toggle{display:flex;align-items:center;gap:6px;font-size:.7em;color:#aaa;margin-bottom:6px}
+.ins-grid label{font-size:.64em;color:#888;display:flex;flex-direction:column;gap:2px}
+.ins-grid input{background:var(--panel-2);border:1px solid var(--border-2);color:#bbb;padding:3px 5px;border-radius:2px;font-size:.74em;font-family:inherit}
+.ins-toggle{display:flex;align-items:center;gap:6px;font-size:.7em;color:#bbb;margin-bottom:6px}
 .btn-exec{width:100%;padding:9px;font-size:.8em;font-weight:bold;background:#1b3a1b;color:#81c784;letter-spacing:.08em}
 .btn-exec:hover{background:#2e7d32;color:#fff}
 .btn-estop{width:100%;padding:8px;margin-top:5px;background:#3a0d0d;color:#ef9a9a;font-weight:bold;letter-spacing:.06em}
 .btn-estop:hover{background:#c62828;color:#fff}
-.progress{height:14px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:7px;overflow:hidden;margin-top:8px;position:relative}
+.progress{height:14px;background:var(--inset);border:1px solid var(--border);border-radius:7px;overflow:hidden;margin-top:8px;position:relative}
 .progress-bar{height:100%;width:0;background:linear-gradient(90deg,#1565c0,#4fc3f7);transition:width .3s}
 .progress-txt{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:.62em;color:#cfd8dc}
 .topic-list{max-height:150px;overflow-y:auto;font-size:.66em;margin-top:4px}
 .topic-item{display:flex;gap:6px;align-items:center;padding:2px 0;cursor:pointer;color:#9aa}
-.topic-item:hover{color:#4fc3f7}
-.topic-item .thz{color:#666;margin-left:auto;font-size:.9em}
+.topic-item:hover{color:var(--accent)}
+.topic-item .thz{color:#888;margin-left:auto;font-size:.9em}
 
-::-webkit-scrollbar{width:4px;height:4px}
-::-webkit-scrollbar-track{background:#111}
-::-webkit-scrollbar-thumb{background:#2a2a2a;border-radius:2px}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:#3a3a3a;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#4a4a4a}
