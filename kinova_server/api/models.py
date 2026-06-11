@@ -33,7 +33,8 @@ class EndEffectorReq(BaseModel):
 
 
 class ProcessReq(BaseModel):
-    process: str  # "system" | "fusion"
+    process: str  # "system" | "fusion" | "pcfusion" | "wrist"
+    args: Optional[dict] = None  # validated launch overrides (see processes.LAUNCH_ARGS)
 
 
 class InsertReq(BaseModel):

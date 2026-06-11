@@ -82,7 +82,7 @@ async def ros2_image(name: str, t: str = Depends(_auth.auth)):
 # ── subprocess manager ──────────────────────────────────────────────────────
 @router.post("/api/ros2/process/start")
 async def process_start(body: ProcessReq, t: str = Depends(_auth.auth)):
-    res = await MANAGER.start(body.process)
+    res = await MANAGER.start(body.process, body.args)
     if not res.get("ok"):
         raise HTTPException(400, res.get("error", "start failed"))
     return res

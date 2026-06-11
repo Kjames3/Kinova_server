@@ -324,11 +324,22 @@ async function refreshRos2Status() {
   } catch {}
 }
 
+function procArgs(name) {
+  if (name === 'system') {
+    return {
+      launch_oak_camera:   document.getElementById('sysOak').checked   ? 'true' : 'false',
+      launch_wrist_camera: document.getElementById('sysWrist').checked ? 'true' : 'false',
+    };
+  }
+  return null;
+}
 async function toggleProcess(name, btn) {
   const st = await fetch(`/api/ros2/process/status?token=${TOKEN}`).then(r=>r.json()).catch(()=>({}));
   const running = (st[name] || {}).running;
   const path = running ? '/api/ros2/process/stop' : '/api/ros2/process/start';
-  const r = await apiPost(path, {process: name});
+  const body = {process: name};
+  if (!running) { const a = procArgs(name); if (a) body.args = a; }
+  const r = await apiPost(path, body);
   if (r && r.ok && !running) openProcConsole(name);
   refreshRos2Status();
 }

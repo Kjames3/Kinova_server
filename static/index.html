@@ -178,6 +178,10 @@
           <button class="btn bn" style="font-size:.6em" onclick="toggleConsole('system')">LOG</button>
           <button class="btn bp" onclick="toggleProcess('system',this)">START/STOP</button>
         </div>
+        <div class="proc-args" title="Uncheck to avoid the ROS camera nodes fighting the server for the USB cameras">
+          <label><input type="checkbox" id="sysOak" checked> OAK node</label>
+          <label><input type="checkbox" id="sysWrist" checked> Wrist node</label>
+        </div>
         <div id="console-system" class="console"></div>
         <div class="proc-row">
           <span class="pname">Marker Fusion</span>

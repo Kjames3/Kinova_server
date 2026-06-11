@@ -37,6 +37,28 @@ COMMANDS: Dict[str, str] = {
     "wrist": f"ros2 launch kinova_vision kinova_vision.launch.py device:={CFG.robot_ip}",
 }
 
+# Optional, per-process launch arguments the dashboard may override (name → set of
+# allowed values). Restricting names + values keeps these safe to append to the
+# shell command. Lets the operator avoid the OAK/RealSense USB clash by toggling
+# the ROS camera nodes off when the server already owns those cameras.
+LAUNCH_ARGS: Dict[str, Dict[str, set]] = {
+    "system": {
+        "launch_oak_camera": {"true", "false"},
+        "launch_wrist_camera": {"true", "false"},
+        "use_fake_hardware": {"true", "false"},
+    },
+}
+
+
+def _build_command(name: str, args: Optional[Dict[str, str]]) -> str:
+    cmd = COMMANDS[name]
+    allowed = LAUNCH_ARGS.get(name, {})
+    for k, v in (args or {}).items():
+        v = str(v).lower()
+        if k in allowed and v in allowed[k]:
+            cmd += f" {k}:={v}"
+    return cmd
+
 
 class _ManagedProcess:
     def __init__(self, name: str) -> None:
@@ -69,14 +91,14 @@ class ProcessManager:
     def get(self, name: str) -> Optional[_ManagedProcess]:
         return self._procs.get(name)
 
-    async def start(self, name: str) -> Dict:
+    async def start(self, name: str, args: Optional[Dict[str, str]] = None) -> Dict:
         if name not in COMMANDS:
             return {"ok": False, "error": f"unknown process '{name}'"}
         mp = self._procs[name]
         if mp.running:
             return {"ok": False, "error": f"{name} already running", "state": mp.state}
 
-        wrapped = self._wrap(COMMANDS[name])
+        wrapped = self._wrap(_build_command(name, args))
         mp.log_buffer.clear()
         try:
             mp.proc = await asyncio.create_subprocess_exec(
