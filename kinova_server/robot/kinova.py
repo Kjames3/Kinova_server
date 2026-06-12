@@ -44,7 +44,23 @@ def _import_transport():
         return TCPTransport
 
 
+# Seconds between reconnect attempts, and the session inactivity timeout. The
+# timeout is short (60 s, was 600 s) so a session left open by a hard-killed
+# server is released by the arm quickly — otherwise a restart can't reconnect
+# until the stale session expires. Continuous 20 Hz polling keeps it alive, so
+# the timeout never fires during normal operation.
+RECONNECT_DELAY = 5.0
+SESSION_TIMEOUT_MS = 60_000
+MAX_POLL_ERRORS = 5   # consecutive poll failures → drop + reconnect
+
+
 def kinova_thread() -> None:
+    """Connect-and-poll, retrying forever until shutdown (PLAN: robustness).
+
+    Each pass owns one transport/session; on any failure (connect, session, or a
+    run of poll errors) it tears down and the outer loop reconnects after a
+    short delay, so the arm recovers on its own without a server restart.
+    """
     try:
         _protobuf_compat()
         from kortex_api.autogen.client_stubs.BaseClientRpc import BaseClient
@@ -57,26 +73,41 @@ def kinova_thread() -> None:
         log.warning("kortex_api not installed — Kinova arm disabled")
         return
 
+    deps = (TransportClient, RouterClient, RouterClientSendOptions,
+            SessionManager, CreateSessionInfo, BaseClient, BaseCyclicClient)
+    while not STATE.stop_event.is_set():
+        _run_one_session(*deps)
+        if not STATE.stop_event.is_set():
+            STATE.stop_event.wait(RECONNECT_DELAY)   # interruptible retry delay
+    log.info("Kinova thread stopped")
+
+
+def _run_one_session(TransportClient, RouterClient, RouterClientSendOptions,
+                     SessionManager, CreateSessionInfo, BaseClient, BaseCyclicClient) -> None:
     transport = TransportClient()
     router = RouterClient(transport, RouterClientSendOptions())
     try:
         transport.connect(CFG.kinova_ip, CFG.kinova_port)
     except Exception as exc:
-        log.error(f"Kinova connect failed ({CFG.kinova_ip}:{CFG.kinova_port}): {exc}")
+        log.warning(f"Kinova connect failed ({CFG.kinova_ip}:{CFG.kinova_port}): {exc} "
+                    f"— retry in {RECONNECT_DELAY:.0f}s")
         return
 
     session_info = CreateSessionInfo()
     session_info.username = CFG.kinova_user
     session_info.password = CFG.kinova_pass
-    session_info.session_inactivity_timeout = 600_000
+    session_info.session_inactivity_timeout = SESSION_TIMEOUT_MS
 
     session_manager = None
     try:
         session_manager = SessionManager(router)
         session_manager.CreateSession(session_info)
     except Exception as exc:
-        log.error(f"Kinova session failed: {exc}")
-        transport.disconnect()
+        log.warning(f"Kinova session failed: {exc} — retry in {RECONNECT_DELAY:.0f}s")
+        try:
+            transport.disconnect()
+        except Exception:
+            pass
         return
 
     STATE.robot.base = BaseClient(router)
@@ -86,6 +117,7 @@ def kinova_thread() -> None:
 
     POSE_EVERY = 4  # 20 Hz feedback / 4 → ~5 Hz pose
     tick = 0
+    errors = 0
     try:
         while not STATE.stop_event.is_set():
             try:
@@ -105,11 +137,16 @@ def kinova_thread() -> None:
                         "theta_y": pose.theta_y,
                         "theta_z": pose.theta_z,
                     })
+                errors = 0
             except Exception as exc:
+                errors += 1
                 log.warning(f"Kinova poll: {exc}")
                 STATE.robot.update(connected=False)
+                if errors >= MAX_POLL_ERRORS:
+                    log.warning("Kinova: too many poll errors — reconnecting")
+                    break
             tick += 1
-            time.sleep(0.05)
+            STATE.stop_event.wait(0.05)   # interruptible 20 Hz tick
     finally:
         STATE.status["kinova"] = False
         STATE.robot.base = None
@@ -117,11 +154,11 @@ def kinova_thread() -> None:
         STATE.robot.update(connected=False)
         try:
             if session_manager:
-                session_manager.CloseSession()
+                session_manager.CloseSession()   # graceful: frees the arm session
             transport.disconnect()
         except Exception:
             pass
-        log.info("Kinova disconnected")
+        log.info("Kinova session closed")
 
 
 # ── Control helpers ─────────────────────────────────────────────────────────

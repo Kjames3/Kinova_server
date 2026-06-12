@@ -64,6 +64,12 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         STATE.stop_event.set()
+        # Let the Kinova thread close its kortex session cleanly so the arm
+        # frees it immediately (otherwise it lingers until the inactivity
+        # timeout). Daemon threads aren't auto-joined, so wait briefly here.
+        for t in threads:
+            if t.name == "kinova":
+                t.join(timeout=3.0)
         for t in tasks:
             t.cancel()
         try:
