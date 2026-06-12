@@ -58,6 +58,10 @@ header{flex-shrink:0;height:38px;background:var(--header);border-bottom:1px soli
 .jval{font-size:.7em;color:var(--accent);width:44px;text-align:right;flex-shrink:0}
 .jrow input[type=range]::-webkit-slider-thumb{width:12px;height:12px}
 
+/* ── Live joint control toggle ── */
+.live-toggle{display:flex;align-items:center;gap:6px;font-size:.64em;color:#ffb74d;margin-top:6px;cursor:pointer}
+.live-toggle input{accent-color:#ffb74d}
+
 /* ── Pose grid ── */
 .pgrid{display:grid;grid-template-columns:26px 1fr 26px 1fr;gap:3px 5px;align-items:center;margin-bottom:5px}
 .pgrid label{font-size:.68em;color:#888;text-align:right}

@@ -57,6 +57,10 @@
       <div id="jsliders"></div>
       <button class="btn bp btn-fw" onclick="sendJoints()">SEND TO ROBOT</button>
       <button class="btn bn btn-fw" onclick="syncJointsFromRobot()" style="margin-top:3px;font-size:.68em">SYNC FROM ROBOT</button>
+      <label class="live-toggle" title="When on, releasing a joint slider moves the real arm to that pose">
+        <input type="checkbox" id="liveCtrl" onchange="liveControl=this.checked">
+        LIVE — move arm on slider release
+      </label>
 
       <span class="lbl">GRIPPER <span id="gPct" style="color:#4fc3f7">0%</span></span>
       <div class="grip-row">

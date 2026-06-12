@@ -5,6 +5,10 @@ let activeSl = null;
 let poseEditing = false;
 let depthOn = {rs: true, oak: true};
 let robotJoints = [0,0,0,0,0,0,0];
+// jDirty[i]: user has moved slider i and not sent yet → don't let the live
+// feed overwrite it (otherwise it snaps back to the arm before you can SEND).
+let jDirty = [false,false,false,false,false,false,false];
+let liveControl = false;   // when on, releasing a slider commands the arm
 
 // ── WebSocket helper: token travels in Sec-WebSocket-Protocol, not the URL ──
 function wsConnect(path) {
@@ -63,9 +67,9 @@ function initJoints() {
     c.innerHTML += `<div class="jrow">
       <span class="jlbl">J${i}</span>
       <input type="range" id="j${i}" min="-180" max="180" value="0" step="0.5"
-        onmousedown="activeSl='j${i}'" onmouseup="activeSl=null"
-        ontouchstart="activeSl='j${i}'" ontouchend="activeSl=null"
-        oninput="document.getElementById('jv${i}').textContent=parseFloat(this.value).toFixed(1)+'°'">
+        onmousedown="activeSl='j${i}'" onmouseup="jointRelease(${i})"
+        ontouchstart="activeSl='j${i}'" ontouchend="jointRelease(${i})"
+        oninput="jDirty[${i-1}]=true;document.getElementById('jv${i}').textContent=parseFloat(this.value).toFixed(1)+'°'">
       <span class="jval" id="jv${i}">0.0°</span>
     </div>`;
   }
@@ -74,10 +78,17 @@ function initJoints() {
     if(el) { el.onfocus = ()=>poseEditing=true; el.onblur = ()=>poseEditing=false; }
   });
 }
+// Slider released: stop tracking-suppression, and (in live mode) command the arm.
+function jointRelease(i) {
+  activeSl = null;
+  if (liveControl) sendJoints();
+}
 function syncJointsFromRobot() {
+  jDirty = [false,false,false,false,false,false,false];
   robotJoints.forEach((v, i) => {
     const el = document.getElementById(`j${i+1}`);
-    if (el) { el.value = v; document.getElementById(`jv${i+1}`).textContent = v.toFixed(1)+'°'; }
+    const w = wrapDeg(v);
+    if (el) { el.value = w; document.getElementById(`jv${i+1}`).textContent = w.toFixed(1)+'°'; }
   });
 }
 
@@ -93,9 +104,10 @@ function connectRobotWs() {
       robotJoints = s.joints;
       if (armReady) updateArm(s.joints);
       s.joints.forEach((v, i) => {
-        if (activeSl !== `j${i+1}`) {
+        if (activeSl !== `j${i+1}` && !jDirty[i]) {   // follow arm unless held by user
           const el = document.getElementById(`j${i+1}`);
-          if (el) { el.value = v; document.getElementById(`jv${i+1}`).textContent = v.toFixed(1)+'°'; }
+          const w = wrapDeg(v);   // kortex 0..360 → slider's [-180,180] range
+          if (el) { el.value = w; document.getElementById(`jv${i+1}`).textContent = w.toFixed(1)+'°'; }
         }
       });
     }
@@ -260,6 +272,7 @@ async function apiPost(path, body) {
 async function sendJoints() {
   const angles = Array.from({length:7},(_,i)=>parseFloat(document.getElementById(`j${i+1}`).value));
   await apiPost('/api/robot/joints', {angles});
+  jDirty = [false,false,false,false,false,false,false];   // resume live tracking
 }
 async function moveToPose() {
   await apiPost('/api/robot/pose', {
