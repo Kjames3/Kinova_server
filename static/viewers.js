@@ -180,7 +180,9 @@ function toggleArmModel() {
 function setArmModel(model) {
   if (!gripperGroup) { setArmModel._pending = model; return; }
   while (gripperGroup.children.length) gripperGroup.remove(gripperGroup.children[0]);
-  if (model === 'gen3_assembly_tip') {
+  if (model === 'none') {
+    return;   // bare flange — no end effector attached
+  } else if (model === 'gen3_assembly_tip') {
     // lightweight proxy for the 0.255 m assembly tip (full CAD mesh is 32 MB)
     const g = new THREE.CylinderGeometry(0.008, 0.004, 0.255, 12);
     const m = new THREE.Mesh(g, new THREE.MeshPhongMaterial({color: 0xffc107}));

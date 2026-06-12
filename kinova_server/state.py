@@ -187,6 +187,10 @@ END_EFFECTORS: Dict[str, Dict[str, Any]] = {
         "label": "Assembly Tip", "has_gripper": False,
         "tcp_offset": 0.255, "tcp_axis": "-x", "model": "gen3_assembly_tip",
     },
+    "none": {
+        "label": "None (bare flange)", "has_gripper": False,
+        "tcp_offset": 0.0, "tcp_axis": "z", "model": "none",
+    },
 }
 
 
