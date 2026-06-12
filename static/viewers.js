@@ -151,6 +151,9 @@ function loadArmUrdf() {
   };
   loader.load('/static/models/gen3/gen3.urdf', robot => {
     urdfRobot = robot;
+    // don't clamp to URDF limits — the wrapped feedback is the true angle, and
+    // continuous joints have no meaningful limit anyway
+    for (const k in robot.joints) { try { robot.joints[k].ignoreLimits = true; } catch (e) {} }
     // attach the EE proxy at the wrist/tool link so it follows joint 7
     const eeLink = robot.links['end_effector_link'] || robot.links['bracelet_with_vision_link']
                  || robot.links['bracelet_link'] || robot.links['tool_frame'] || robot;
@@ -198,12 +201,16 @@ function setArmModel(model) {
 const _dhY = new THREE.Vector3(0, 1, 0);
 const _qTmp = new THREE.Quaternion();
 
+// Kortex reports joints in [0,360)°; wrap to [-180,180]° (matches ros2_kortex's
+// wrapRadiansFromMinusPiToPi) so URDF revolute joints aren't clamped at a limit.
+function wrapDeg(d) { return ((d + 180) % 360 + 360) % 360 - 180; }
+
 function updateArm(deg) {
   lastJointsDeg = deg;
   if (urdfRobot && useUrdf) {
     for (let i = 0; i < 7; i++) {
       const j = urdfRobot.joints['joint_' + (i + 1)];
-      if (j) j.setJointValue(deg[i] * Math.PI / 180);
+      if (j) j.setJointValue(wrapDeg(deg[i]) * Math.PI / 180);
     }
     return;
   }
